@@ -4,9 +4,12 @@ import json
 import getpass
 import hashlib
 import cryptography
+import time
 
 from base64 import b64decode, b64encode
 from cryptography.fernet import Fernet
+
+logging.basicConfig(level="INFO")
 
 class WalletNotFoundException(Exception):
     pass
@@ -34,9 +37,13 @@ def json_loads(pth):
 
 class Vault:
 
-    def __init__(self, pth, master_password=None):
+    def __init__(self, pth, master_password=None, keep_unlocked=10):
         
         self.pth = pth
+        self._keep_unlocked = keep_unlocked
+        self._last_unlock = None
+        self._tmp_master_password = None
+
         self.init_wallet(pth, master_password)
 
     def init_wallet(self, pth, master_password=None):
@@ -71,11 +78,10 @@ class Vault:
     def ask_master_password(self):
         return getpass.getpass(prompt='Password: ', stream=None)
 
-    def unlock(self, wallet, password):
+    def check_master_password(self, wallet, password):
         return self._decript(wallet["master"], password) == password
             
-    def get(self, key, master_password=None):
-
+    def unlock(self, master_password=None):
         if not os.path.exists(self.pth):
             logging.error(f'"{self.pth}" does not contain wallet')
             raise WalletNotFoundException()
@@ -84,61 +90,53 @@ class Vault:
 
         self.check_wellformed_wallet(self.pth, wallet=wallet)
 
+        if self._last_unlock != None and time.time() - self._last_unlock < self._keep_unlocked:
+            master_password = self._tmp_master_password
+        else:
+            self._tmp_master_password = None
+
         if master_password is None:
             master_password = self.ask_master_password()
 
-        if not self.unlock(wallet, master_password):
+        if not self.check_master_password(wallet, master_password):
             logging.error("master password not recognized")
             raise NotCorrectMasterPasswordException()
-        else:
-            keys = {self._decript(k, master_password): k for k in wallet["keys"]} 
+        
+        if self._keep_unlocked > 0:
+            logging.info(f"keeping the wallet open for {self._keep_unlocked} seconds")
+            self._last_unlock = time.time()
+            self._tmp_master_password = master_password
 
-            if key not in keys:
-                logging.error(f"this key ({key}) is not present in this wallet")
-                raise KeyNotInWalletException
+        return master_password, wallet
 
-            return self._decript(wallet["keys"][keys[key]], master_password)
+    def get(self, key, master_password=None):
+
+        master_password, wallet = self.unlock(master_password)
+
+        keys = {self._decript(k, master_password): k for k in wallet["keys"]} 
+
+        if key not in keys:
+            logging.error(f"this key ({key}) is not present in this wallet")
+            raise KeyNotInWalletException
+
+        return self._decript(wallet["keys"][keys[key]], master_password)
 
     def add(self, key, message, master_password=None):
 
-        if not os.path.exists(self.pth):
-            logging.error(f'"{self.pth}" does not contain wallet')
-            raise WalletNotFoundException()
-        
-        wallet = json_loads(self.pth)
+        master_password, wallet = self.unlock(master_password)
 
-        if master_password is None:
-            master_password = self.ask_master_password()
+        wallet["keys"][self._encrypt(key, master_password)] = self._encrypt(message, master_password)
 
-        if not self.unlock(wallet, master_password):
-            logging.error("master password not recognized")
-            raise NotCorrectMasterPasswordException()
-        else:
-            wallet["keys"][self._encrypt(key, master_password)] = self._encrypt(message, master_password)
-
-            with open(self.pth, "w") as f:
-                f.write(json.dumps(wallet))
+        with open(self.pth, "w") as f:
+            f.write(json.dumps(wallet))
 
     def ls_keys(self, master_password=None):
 
-        if not os.path.exists(self.pth):
-            logging.error(f'"{self.pth}" does not contain wallet')
-            raise WalletNotFoundException()
-        
-        wallet = json_loads(self.pth)
+        master_password, wallet = self.unlock(master_password)
 
-        self.check_wellformed_wallet(self.pth, wallet=wallet)
+        keys = {self._decript(k, master_password): k for k in wallet["keys"]} 
 
-        if master_password is None:
-            master_password = self.ask_master_password()
-
-        if not self.unlock(wallet, master_password):
-            logging.error("master password not recognized")
-            raise NotCorrectMasterPasswordException()
-        else:
-            keys = {self._decript(k, master_password): k for k in wallet["keys"]} 
-
-            return [key for key in keys]
+        return [key for key in keys]
 
     @staticmethod
     def _encrypt(dec_message, password):

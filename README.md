@@ -17,8 +17,8 @@ pip install git+https://github.com/matteogabburo/password-vault.git@<branch_name
 ### TL;DR Example
 
 ```
-# instantiate the wallet
-vault = Vault("path/to/the/newwallet")
+# instantiate the wallet (using keep_unlocked=<NUM>, the system will not ask for a new password for <NUM> seconds)
+vault = Vault("newwallet", keep_unlocked=20)
 
 # add a new item to the wallet
 vault.add("key1", "value1")
@@ -27,12 +27,12 @@ vault.add("key1", "value1")
 print(vault.get("key1"))
 
 # the password can be also specified as a parameter (the system will not ask any password to the user)
-vault.add("prova2", "valore2", master_password="superstrongpassword")
-print(vault.get("prova2", master_password="superstrongpassword"))
+vault.add("key2", "value2", master_password="superstrongpassword")
+print(vault.get("key2", master_password="superstrongpassword"))
 
 # you can also have a list with the keys contained in the wallet
 print(vault.ls_keys(master_password="superstrongpassword"))
 
 # if the key is not present in the wallet, the system will return a "KeyNotInWalletException"
-print(vault.get("prova3", master_password="ciao"))
+print(vault.get("key3", master_password="ciao"))
 ```
